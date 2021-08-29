@@ -1,7 +1,10 @@
 package org.example.kakaoworkbot;
 
-import com.google.gson.*;
-import org.example.kakaoworkbot.models.*;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParser;
+import org.example.kakaoworkbot.models.Index;
+import org.example.kakaoworkbot.models.Response;
 import org.example.kakaoworkbot.models.conversations.Conversation;
 import org.example.kakaoworkbot.models.conversations.ConversationsOpenRequest;
 import org.example.kakaoworkbot.models.conversations.ConversationsOpenResponse;
@@ -20,29 +23,28 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
-    private static String appKey;
-    private static List<User> users;
-    private static String fmpApiKey;
-    private static final Gson gson = new GsonBuilder()
-            .setPrettyPrinting()
-            .create();
-    private static final HttpClient httpClient = HttpClient.newBuilder()
-            .build();
-    private static List<Conversation> conversations;
-
     public static void main(String[] args) {
-        appKey = System.getenv("APP_KEY");
-        users = GetUsers();
-        fmpApiKey = System.getenv("FMP_API_KEY");
-        conversations = OpenConversations();
-        SendClosingPrices();
+        if (userId != null) {
+            users = GetUsers();
+            conversations = OpenConversations();
+            SendClosingPrices();
+        }
+
         Timer timer = new Timer();
+
+        GregorianCalendar midnight = new GregorianCalendar();
+        midnight.set(midnight.get(Calendar.YEAR),
+                midnight.get(Calendar.MONTH),
+                midnight.get(Calendar.DAY_OF_MONTH),
+                0,
+                0,
+                0);
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
                 users = GetUsers();
             }
-        }, 0, 24 * 60 * 60 * 1000);
+        }, midnight.getTime(), 24 * 60 * 60 * 1000);
 
         //TODO: Don't send messages on weekends and holidays
         GregorianCalendar usaStockMarketTodayClosingTime = new GregorianCalendar(TimeZone.getTimeZone("America/New_York"));
@@ -114,6 +116,7 @@ public class Main {
                 .map(text -> new TextBlock(text, false))
                 .collect(Collectors.toList());
 
+        //TODO: Add interactive blocks
         List<Block> blocks = new ArrayList<>();
         blocks.add(new HeaderBlock("Index end prices", "yellow"));
         for (TextBlock textBlock : textBlocks) {
@@ -147,6 +150,11 @@ public class Main {
     }
 
     private static List<User> GetUsers() {
+        if (userId != null) {
+            User user = new User();
+            user.id = Integer.parseInt(userId);
+            return List.of(user);
+        }
         URI uri;
         try {
             uri = new URI("https://api.kakaowork.com/v1/users.list");
@@ -169,4 +177,16 @@ public class Main {
         }
         return usersListResponse.users;
     }
+
+    private static List<User> users;
+    private static List<Conversation> conversations;
+
+    private static final String appKey = System.getenv("APP_KEY");
+    private static final String fmpApiKey = System.getenv("FMP_API_KEY");
+    private static final String userId = System.getenv("USER_ID");
+    private static final Gson gson = new GsonBuilder()
+            .setPrettyPrinting()
+            .create();
+    private static final HttpClient httpClient = HttpClient.newBuilder()
+            .build();
 }
