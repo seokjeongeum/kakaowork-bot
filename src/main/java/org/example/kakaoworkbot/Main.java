@@ -14,19 +14,19 @@ import java.util.stream.Collectors;
 
 public class Main {
     private static String appKey;
-    private static User[] users;
+    private static List<User> users;
     private static String fmpApiKey;
     private static final Gson gson = new GsonBuilder()
             .setPrettyPrinting()
             .create();
     private static final HttpClient httpClient = HttpClient.newBuilder()
             .build();
+    private static List<Conversation> conversations;
 
     public static void main(String[] args) {
         appKey = System.getenv("APP_KEY");
         users = GetUsers();
         fmpApiKey = System.getenv("FMP_API_KEY");
-        SendClosingPrices();
         Timer timer = new Timer();
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -46,34 +46,21 @@ public class Main {
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
+                conversations = OpenConversations();
                 SendClosingPrices();
             }
         }, usaStockMarketTodayClosingTime.getTime(), 24 * 60 * 60 * 1000);
     }
 
-    //TODO: Separate getting conversation ids
-    private static void SendClosingPrices() {
+    private static List<Conversation> OpenConversations() {
         URI conversationsOpen;
-        URI messagesSend;
-        URI nasdaq100Api;
-        URI snp500Api;
         try {
             conversationsOpen = new URI("https://api.kakaowork.com/v1/conversations.open");
-            messagesSend = new URI("https://api.kakaowork.com/v1/messages.send");
-            nasdaq100Api = new URI("https://financialmodelingprep.com/api/v3/quote/%5ENDX?apikey=" + fmpApiKey);
-            snp500Api = new URI("https://financialmodelingprep.com/api/v3/quote/%5EGSPC?apikey=" + fmpApiKey);
         } catch (URISyntaxException e) {
             e.printStackTrace();
-            return;
+            return Collections.emptyList();
         }
-        var nasdaq100Body = httpClient.sendAsync(HttpRequest.newBuilder(nasdaq100Api).build(), HttpResponse.BodyHandlers.ofString())
-                .join()
-                .body();
-        var snp500Body = httpClient.sendAsync(HttpRequest.newBuilder(snp500Api).build(), HttpResponse.BodyHandlers.ofString())
-                .join()
-                .body();
-        var indexes = new Index[]{gson.fromJson(nasdaq100Body, Index[].class)[0], gson.fromJson(snp500Body, Index[].class)[0]};
-        List<CompletableFuture<Response>> responses = Arrays.stream(users).parallel()
+        return users.parallelStream()
                 .map(user -> {
                     Map<Object, Object> data = new HashMap<>();
                     data.put("user_id", user.id);
@@ -93,7 +80,31 @@ public class Main {
                         System.out.println(gson.toJson(conversationsOpenResponse.error));
                     }
                     return conversationsOpenResponse.success;
-                }).map(conversationsOpenResponse -> conversationsOpenResponse.conversation.id)
+                }).map(conversationsOpenResponse -> conversationsOpenResponse.conversation)
+                .collect(Collectors.toList());
+    }
+
+    private static void SendClosingPrices() {
+        URI messagesSend;
+        URI nasdaq100Api;
+        URI snp500Api;
+        try {
+            messagesSend = new URI("https://api.kakaowork.com/v1/messages.send");
+            nasdaq100Api = new URI("https://financialmodelingprep.com/api/v3/quote/%5ENDX?apikey=" + fmpApiKey);
+            snp500Api = new URI("https://financialmodelingprep.com/api/v3/quote/%5EGSPC?apikey=" + fmpApiKey);
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            return;
+        }
+        String nasdaq100Body = httpClient.sendAsync(HttpRequest.newBuilder(nasdaq100Api).build(), HttpResponse.BodyHandlers.ofString())
+                .join()
+                .body();
+        String snp500Body = httpClient.sendAsync(HttpRequest.newBuilder(snp500Api).build(), HttpResponse.BodyHandlers.ofString())
+                .join()
+                .body();
+        Index[] indexes = new Index[]{gson.fromJson(nasdaq100Body, Index[].class)[0], gson.fromJson(snp500Body, Index[].class)[0]};
+        List<CompletableFuture<Response>> responses = conversations.parallelStream()
+                .map(conversation -> conversation.id)
                 .map(conversationId -> {
                     ArrayList<CompletableFuture<Response>> futures = new ArrayList<>();
                     for (Index index : indexes) {
@@ -123,13 +134,13 @@ public class Main {
         }
     }
 
-    private static User[] GetUsers() {
+    private static List<User> GetUsers() {
         URI uri;
         try {
             uri = new URI("https://api.kakaowork.com/v1/users.list");
         } catch (URISyntaxException e) {
             e.printStackTrace();
-            return new User[0];
+            return Collections.emptyList();
         }
         HttpRequest httpRequest = HttpRequest.newBuilder(uri)
                 .header("Authorization", "Bearer " + appKey)
@@ -142,7 +153,7 @@ public class Main {
                 .join();
         if (!usersListResponse.success) {
             System.out.println(gson.toJson(usersListResponse.error));
-            return new User[0];
+            return Collections.emptyList();
         }
         return usersListResponse.users;
     }
