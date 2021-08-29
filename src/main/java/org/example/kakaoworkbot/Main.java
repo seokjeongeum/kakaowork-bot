@@ -27,6 +27,8 @@ public class Main {
         appKey = System.getenv("APP_KEY");
         users = GetUsers();
         fmpApiKey = System.getenv("FMP_API_KEY");
+        conversations = OpenConversations();
+        SendClosingPrices();
         Timer timer = new Timer();
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -106,25 +108,37 @@ public class Main {
         List<CompletableFuture<Response>> responses = conversations.parallelStream()
                 .map(conversation -> conversation.id)
                 .map(conversationId -> {
-                    ArrayList<CompletableFuture<Response>> futures = new ArrayList<>();
+                    Map<Object, Object> request = new HashMap<>();
+                    request.put("conversation_id", conversationId);
+                    request.put("text", "Index end prices");
+                    List<Map<Object, Object>> blocks = new ArrayList<>();
+                    Map<Object, Object> headerBlock = new HashMap<>();
+                    headerBlock.put("type", "header");
+                    headerBlock.put("text", "Index end prices");
+                    headerBlock.put("style", "yellow");
+                    blocks.add(headerBlock);
                     for (Index index : indexes) {
-                        Map<Object, Object> data = new HashMap<>();
-                        data.put("conversation_id", conversationId);
-                        //TODO: Change the text color subject to the price change
-                        data.put("text", String.format("%s: %.3f (%.3f, %.2f%%)", index.name, index.price, Math.abs(index.change), Math.abs(index.changesPercentage)));
-                        HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
-                                .header("Authorization", "Bearer " + appKey)
-                                .header("Content-Type", "application/json")
-                                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(data)))
-                                .build();
-                        futures.add(httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                                .thenApply(HttpResponse::body)
-                                .thenApply(JsonParser::parseString)
-                                .thenApply(jsonElement -> gson.fromJson(jsonElement, Response.class)));
+                        Map<Object, Object> textBlock = new HashMap<>();
+                        textBlock.put("type", "text");
+                        textBlock.put("text", String.format("%s: %.2f (%+.2f, %+.2f%%)", index.name, index.price, index.change, index.changesPercentage));
+                        textBlock.put("markdown", false);
+                        blocks.add(textBlock);
+                        Map<Object, Object> dividerBlock = new HashMap<>();
+                        dividerBlock.put("type", "divider");
+                        blocks.add(dividerBlock);
                     }
-                    return futures;
+                    blocks.remove(blocks.size() - 1);
+                    request.put("blocks", blocks);
+                    HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
+                            .header("Authorization", "Bearer " + appKey)
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)))
+                            .build();
+                    return httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                            .thenApply(HttpResponse::body)
+                            .thenApply(JsonParser::parseString)
+                            .thenApply(jsonElement -> gson.fromJson(jsonElement, Response.class));
                 })
-                .flatMap(Collection::parallelStream)
                 .collect(Collectors.toList());
         for (CompletableFuture<Response> responseCompletableFuture : responses) {
             Response response = responseCompletableFuture.join();
