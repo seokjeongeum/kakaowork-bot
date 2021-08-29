@@ -2,6 +2,12 @@ package org.example.kakaoworkbot;
 
 import com.google.gson.*;
 import org.example.kakaoworkbot.models.*;
+import org.example.kakaoworkbot.models.conversations.Conversation;
+import org.example.kakaoworkbot.models.conversations.ConversationsOpenRequest;
+import org.example.kakaoworkbot.models.conversations.ConversationsOpenResponse;
+import org.example.kakaoworkbot.models.messages.*;
+import org.example.kakaoworkbot.models.users.User;
+import org.example.kakaoworkbot.models.users.UsersListResponse;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -11,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Main {
     private static String appKey;
@@ -64,12 +71,12 @@ public class Main {
         }
         return users.parallelStream()
                 .map(user -> {
-                    Map<Object, Object> data = new HashMap<>();
-                    data.put("user_id", user.id);
+                    ConversationsOpenRequest conversationsOpenRequest = new ConversationsOpenRequest();
+                    conversationsOpenRequest.user_id = user.id;
                     HttpRequest httpRequest = HttpRequest.newBuilder(conversationsOpen)
                             .header("Authorization", "Bearer " + appKey)
                             .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(data)))
+                            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(conversationsOpenRequest)))
                             .build();
                     return httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
                             .thenApply(HttpResponse::body)
@@ -98,41 +105,32 @@ public class Main {
             e.printStackTrace();
             return;
         }
-        String nasdaq100Body = httpClient.sendAsync(HttpRequest.newBuilder(nasdaq100Api).build(), HttpResponse.BodyHandlers.ofString())
-                .join()
-                .body();
-        String snp500Body = httpClient.sendAsync(HttpRequest.newBuilder(snp500Api).build(), HttpResponse.BodyHandlers.ofString())
-                .join()
-                .body();
-        Index[] indexes = new Index[]{gson.fromJson(nasdaq100Body, Index[].class)[0], gson.fromJson(snp500Body, Index[].class)[0]};
+        List<TextBlock> textBlocks = Stream.of(nasdaq100Api, snp500Api).parallel()
+                .map(uri -> httpClient.sendAsync(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.ofString()))
+                .map(CompletableFuture::join)
+                .map(HttpResponse::body)
+                .map(body -> gson.fromJson(body, Index[].class)[0])
+                .map(index -> String.format("%s: %.2f (%+.2f, %+.2f%%)", index.name, index.price, index.change, index.changesPercentage))
+                .map(text -> new TextBlock(text, false))
+                .collect(Collectors.toList());
+
+        List<Block> blocks = new ArrayList<>();
+        blocks.add(new HeaderBlock("Index end prices", "yellow"));
+        for (TextBlock textBlock : textBlocks) {
+            blocks.add(textBlock);
+            blocks.add(new DividerBlock());
+        }
+        blocks.remove(blocks.size() - 1);
+
         List<CompletableFuture<Response>> responses = conversations.parallelStream()
                 .map(conversation -> conversation.id)
                 .map(conversationId -> {
-                    Map<Object, Object> request = new HashMap<>();
-                    request.put("conversation_id", conversationId);
-                    request.put("text", "Index end prices");
-                    List<Map<Object, Object>> blocks = new ArrayList<>();
-                    Map<Object, Object> headerBlock = new HashMap<>();
-                    headerBlock.put("type", "header");
-                    headerBlock.put("text", "Index end prices");
-                    headerBlock.put("style", "yellow");
-                    blocks.add(headerBlock);
-                    for (Index index : indexes) {
-                        Map<Object, Object> textBlock = new HashMap<>();
-                        textBlock.put("type", "text");
-                        textBlock.put("text", String.format("%s: %.2f (%+.2f, %+.2f%%)", index.name, index.price, index.change, index.changesPercentage));
-                        textBlock.put("markdown", false);
-                        blocks.add(textBlock);
-                        Map<Object, Object> dividerBlock = new HashMap<>();
-                        dividerBlock.put("type", "divider");
-                        blocks.add(dividerBlock);
-                    }
-                    blocks.remove(blocks.size() - 1);
-                    request.put("blocks", blocks);
+                    MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
+                    messagesSendRequest.blocks = blocks;
                     HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
                             .header("Authorization", "Bearer " + appKey)
                             .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)))
+                            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(messagesSendRequest)))
                             .build();
                     return httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
                             .thenApply(HttpResponse::body)

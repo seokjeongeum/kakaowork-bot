@@ -1,4 +1,6 @@
-package org.example.kakaoworkbot.models;
+package org.example.kakaoworkbot.models.users;
+
+import org.example.kakaoworkbot.models.Response;
 
 import java.util.List;
 
