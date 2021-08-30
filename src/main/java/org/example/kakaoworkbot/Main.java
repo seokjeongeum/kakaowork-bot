@@ -8,8 +8,11 @@ import org.example.kakaoworkbot.models.Response;
 import org.example.kakaoworkbot.models.conversations.Conversation;
 import org.example.kakaoworkbot.models.conversations.ConversationsOpenRequest;
 import org.example.kakaoworkbot.models.conversations.ConversationsOpenResponse;
-import org.example.kakaoworkbot.models.messages.*;
-import org.example.kakaoworkbot.models.messages.blocks.*;
+import org.example.kakaoworkbot.models.messages.MessagesSendRequest;
+import org.example.kakaoworkbot.models.messages.blocks.Block;
+import org.example.kakaoworkbot.models.messages.blocks.ButtonBlock;
+import org.example.kakaoworkbot.models.messages.blocks.HeaderBlock;
+import org.example.kakaoworkbot.models.messages.blocks.TextBlock;
 import org.example.kakaoworkbot.models.users.User;
 import org.example.kakaoworkbot.models.users.UsersListResponse;
 
@@ -19,12 +22,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
+    private static List<List<Block>> blocks;
+
     public static void main(String[] args) {
         //Run functions regardless of the time
         if (USER_ID != null) {
@@ -32,6 +36,7 @@ public class Main {
             user.id = Integer.parseInt(USER_ID);
             users = List.of(user);
             conversations = OpenConversations();
+            blocks = CreateBlocks();
             SendClosingPrices();
         }
 
@@ -63,6 +68,7 @@ public class Main {
             @Override
             public void run() {
                 conversations = OpenConversations();
+                blocks = CreateBlocks();
                 SendClosingPrices();
             }
         }, usaStockMarketTodayClosingTime.getTime(), 24 * 60 * 60 * 1000);
@@ -100,20 +106,17 @@ public class Main {
                 .collect(Collectors.toList());
     }
 
-    private static void SendClosingPrices() {
-        URI messagesSend;
+    private static List<List<Block>> CreateBlocks() {
         URI nasdaq100Api;
         URI snp500Api;
         try {
-            messagesSend = new URI("https://api.kakaowork.com/v1/messages.send");
             nasdaq100Api = new URI("https://financialmodelingprep.com/api/v3/quote/%5ENDX?apikey=" + FMP_API_KEY);
             snp500Api = new URI("https://financialmodelingprep.com/api/v3/quote/%5EGSPC?apikey=" + FMP_API_KEY);
         } catch (URISyntaxException e) {
             e.printStackTrace();
-            return;
+            return Collections.emptyList();
         }
-
-        List<List<Block>> blocks = Stream.of(nasdaq100Api, snp500Api).parallel()
+        return Stream.of(nasdaq100Api, snp500Api).parallel()
                 .map(uri -> HTTP_CLIENT.sendAsync(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.ofString()))
                 .map(CompletableFuture::join)
                 .map(HttpResponse::body)
@@ -137,35 +140,6 @@ public class Main {
                     return indexBlocks;
                 })
                 .collect(Collectors.toList());
-
-        List<CompletableFuture<Response>> responses = conversations.parallelStream()
-                .map(conversation -> conversation.id)
-                .map(conversationId -> {
-                    List<CompletableFuture<Response>> messagesSendResponses = new ArrayList<>();
-                    for (List<Block> indexBlocks : blocks) {
-                        MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
-                        messagesSendRequest.blocks = indexBlocks;
-                        HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
-                                .header("Authorization", "Bearer " + APP_KEY)
-                                .header("Content-Type", "application/json")
-                                .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(messagesSendRequest)))
-                                .build();
-                        CompletableFuture<Response> messagesSendResponse = HTTP_CLIENT.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                                .thenApply(HttpResponse::body)
-                                .thenApply(JsonParser::parseString)
-                                .thenApply(jsonElement -> GSON.fromJson(jsonElement, Response.class));
-                        messagesSendResponses.add(messagesSendResponse);
-                    }
-                    return messagesSendResponses;
-                })
-                .flatMap(Collection::parallelStream)
-                .collect(Collectors.toList());
-        for (CompletableFuture<Response> responseCompletableFuture : responses) {
-            Response response = responseCompletableFuture.join();
-            if (!response.success) {
-                System.out.println(GSON.toJson(response.error));
-            }
-        }
     }
 
     private static List<User> GetUsers() {
@@ -194,6 +168,40 @@ public class Main {
 
     private static List<User> users;
     private static List<Conversation> conversations;
+
+    private static void SendClosingPrices() {
+        URI messagesSend;
+        try {
+            messagesSend = new URI("https://api.kakaowork.com/v1/messages.send");
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        List<CompletableFuture<Response>> responses = conversations.parallelStream()
+                .map(conversation -> conversation.id)
+                .flatMap(conversationId -> blocks.parallelStream()
+                        .map(indexBlocks -> {
+                            MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
+                            messagesSendRequest.blocks = indexBlocks;
+                            HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
+                                    .header("Authorization", "Bearer " + APP_KEY)
+                                    .header("Content-Type", "application/json")
+                                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(messagesSendRequest)))
+                                    .build();
+                            return HTTP_CLIENT.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                                    .thenApply(HttpResponse::body)
+                                    .thenApply(JsonParser::parseString)
+                                    .thenApply(jsonElement -> GSON.fromJson(jsonElement, Response.class));
+                        }))
+                .collect(Collectors.toList());
+        for (CompletableFuture<Response> responseCompletableFuture : responses) {
+            Response response = responseCompletableFuture.join();
+            if (!response.success) {
+                System.out.println(GSON.toJson(response.error));
+            }
+        }
+    }
 
     private static final String APP_KEY = System.getenv("APP_KEY");
     private static final String FMP_API_KEY = System.getenv("FMP_API_KEY");
