@@ -1,12 +1,12 @@
-package org.example.kakaoworkbot.models.messages;
+package org.example.kakaoworkbot.models.messages.blocks;
 
 public class TextBlock extends Block {
-    private final String text;
-    private final boolean markdown;
-
     public TextBlock(String text, boolean markdown) {
         super("text");
         this.text = text;
         this.markdown = markdown;
     }
+
+    private final String text;
+    private final boolean markdown;
 }

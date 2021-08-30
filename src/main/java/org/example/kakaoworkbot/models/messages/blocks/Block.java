@@ -1,9 +1,9 @@
-package org.example.kakaoworkbot.models.messages;
+package org.example.kakaoworkbot.models.messages.blocks;
 
 public abstract class Block {
-    private final String type;
-
     protected Block(String type) {
         this.type = type;
     }
+
+    private final String type;
 }
