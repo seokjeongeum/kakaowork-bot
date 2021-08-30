@@ -24,8 +24,11 @@ import java.util.stream.Stream;
 
 public class Main {
     public static void main(String[] args) {
+        //Run functions regardless of the time
         if (userId != null) {
-            users = GetUsers();
+            User user = new User();
+            user.id = Integer.parseInt(userId);
+            users = List.of(user);
             conversations = OpenConversations();
             SendClosingPrices();
         }
@@ -107,39 +110,50 @@ public class Main {
             e.printStackTrace();
             return;
         }
-        List<TextBlock> textBlocks = Stream.of(nasdaq100Api, snp500Api).parallel()
+
+        //TODO: Add interactive blocks
+        List<List<Block>> blocks = Stream.of(nasdaq100Api, snp500Api).parallel()
                 .map(uri -> httpClient.sendAsync(HttpRequest.newBuilder(uri).build(), HttpResponse.BodyHandlers.ofString()))
                 .map(CompletableFuture::join)
                 .map(HttpResponse::body)
                 .map(body -> gson.fromJson(body, Index[].class)[0])
-                .map(index -> String.format("%s: %.2f (%+.2f, %+.2f%%)", index.name, index.price, index.change, index.changesPercentage))
-                .map(text -> new TextBlock(text, false))
+                .map(index -> {
+                    List<Block> indexBlocks = new ArrayList<>();
+                    String style;
+                    if (index.change > 0) {
+                        style = "red";
+                    } else if (index.change < 0) {
+                        style = "blue";
+                    } else {
+                        style = "yellow";
+                    }
+                    indexBlocks.add(new HeaderBlock(index.name, style));
+                    indexBlocks.add(new TextBlock(String.format("%.2f (%+.2f, %+.2f%%)", index.price, index.change, index.changesPercentage), false));
+                    return indexBlocks;
+                })
                 .collect(Collectors.toList());
-
-        //TODO: Add interactive blocks
-        List<Block> blocks = new ArrayList<>();
-        blocks.add(new HeaderBlock("Index end prices", "yellow"));
-        for (TextBlock textBlock : textBlocks) {
-            blocks.add(textBlock);
-            blocks.add(new DividerBlock());
-        }
-        blocks.remove(blocks.size() - 1);
 
         List<CompletableFuture<Response>> responses = conversations.parallelStream()
                 .map(conversation -> conversation.id)
                 .map(conversationId -> {
-                    MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
-                    messagesSendRequest.blocks = blocks;
-                    HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
-                            .header("Authorization", "Bearer " + appKey)
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(messagesSendRequest)))
-                            .build();
-                    return httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                            .thenApply(HttpResponse::body)
-                            .thenApply(JsonParser::parseString)
-                            .thenApply(jsonElement -> gson.fromJson(jsonElement, Response.class));
+                    List<CompletableFuture<Response>> messagesSendResponses = new ArrayList<>();
+                    for (List<Block> indexBlocks : blocks) {
+                        MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
+                        messagesSendRequest.blocks = indexBlocks;
+                        HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
+                                .header("Authorization", "Bearer " + appKey)
+                                .header("Content-Type", "application/json")
+                                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(messagesSendRequest)))
+                                .build();
+                        CompletableFuture<Response> messagesSendResponse = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                                .thenApply(HttpResponse::body)
+                                .thenApply(JsonParser::parseString)
+                                .thenApply(jsonElement -> gson.fromJson(jsonElement, Response.class));
+                        messagesSendResponses.add(messagesSendResponse);
+                    }
+                    return messagesSendResponses;
                 })
+                .flatMap(Collection::parallelStream)
                 .collect(Collectors.toList());
         for (CompletableFuture<Response> responseCompletableFuture : responses) {
             Response response = responseCompletableFuture.join();
@@ -150,11 +164,6 @@ public class Main {
     }
 
     private static List<User> GetUsers() {
-        if (userId != null) {
-            User user = new User();
-            user.id = Integer.parseInt(userId);
-            return List.of(user);
-        }
         URI uri;
         try {
             uri = new URI("https://api.kakaowork.com/v1/users.list");
