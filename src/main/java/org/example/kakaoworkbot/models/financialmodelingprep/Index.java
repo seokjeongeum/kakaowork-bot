@@ -1,4 +1,4 @@
-package org.example.kakaoworkbot.models;
+package org.example.kakaoworkbot.models.financialmodelingprep;
 
 public class Index {
     public String symbol;

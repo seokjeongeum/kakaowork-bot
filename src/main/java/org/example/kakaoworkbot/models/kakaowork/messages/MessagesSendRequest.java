@@ -1,6 +1,6 @@
-package org.example.kakaoworkbot.models.messages;
+package org.example.kakaoworkbot.models.kakaowork.messages;
 
-import org.example.kakaoworkbot.models.messages.blocks.Block;
+import org.example.kakaoworkbot.models.kakaowork.messages.blocks.Block;
 
 import java.util.List;
 

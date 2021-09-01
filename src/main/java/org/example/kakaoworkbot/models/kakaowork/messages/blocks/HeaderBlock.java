@@ -1,4 +1,4 @@
-package org.example.kakaoworkbot.models.messages.blocks;
+package org.example.kakaoworkbot.models.kakaowork.messages.blocks;
 
 public class HeaderBlock extends Block {
     public HeaderBlock(String text, Style style) {

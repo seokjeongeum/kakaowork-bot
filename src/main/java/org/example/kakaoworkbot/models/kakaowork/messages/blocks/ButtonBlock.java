@@ -1,4 +1,4 @@
-package org.example.kakaoworkbot.models.messages.blocks;
+package org.example.kakaoworkbot.models.kakaowork.messages.blocks;
 
 public class ButtonBlock extends Block {
     public ButtonBlock(String text, String style) {

@@ -1,4 +1,4 @@
-package org.example.kakaoworkbot.models;
+package org.example.kakaoworkbot.models.kakaowork;
 
 import com.google.gson.JsonObject;
 
