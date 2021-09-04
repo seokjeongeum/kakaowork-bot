@@ -28,80 +28,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
-    private static final int DAY = 24 * 60 * 60 * 1000;
-    private static List<User> users;
-
-    private static List<Conversation> OpenConversations() {
-        URI conversationsOpen;
-        try {
-            conversationsOpen = new URI("https://api.kakaowork.com/v1/conversations.open");
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
-            return Collections.emptyList();
-        }
-        return users.parallelStream()
-                .map(user -> {
-                    ConversationsOpenRequest conversationsOpenRequest = new ConversationsOpenRequest();
-                    conversationsOpenRequest.user_id = user.id;
-                    HttpRequest httpRequest = HttpRequest.newBuilder(conversationsOpen)
-                            .header("Authorization", "Bearer " + APP_KEY)
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(conversationsOpenRequest)))
-                            .build();
-                    return HTTP_CLIENT.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                            .thenApply(HttpResponse::body)
-                            .thenApply(JsonParser::parseString)
-                            .thenApply(jsonElement -> GSON.fromJson(jsonElement, ConversationsOpenResponse.class));
-                })
-                .map(CompletableFuture::join)
-                .filter(conversationsOpenResponse -> {
-                    if (!conversationsOpenResponse.success) {
-                        System.out.println(GSON.toJson(conversationsOpenResponse.error));
-                    }
-                    return conversationsOpenResponse.success;
-                }).map(conversationsOpenResponse -> conversationsOpenResponse.conversation)
-                .collect(Collectors.toList());
-    }
-
-    private static List<Conversation> conversations;
-    private static List<List<Block>> blocks;
-
-    private static void SendClosingPrices() {
-        URI messagesSend;
-        try {
-            messagesSend = new URI("https://api.kakaowork.com/v1/messages.send");
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
-            return;
-        }
-
-        List<CompletableFuture<Response>> responses = conversations.parallelStream()
-                .map(conversation -> conversation.id)
-                .flatMap(conversationId -> blocks.parallelStream()
-                        .map(indexBlocks -> {
-                            MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
-                            messagesSendRequest.blocks = indexBlocks;
-                            HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
-                                    .header("Authorization", "Bearer " + APP_KEY)
-                                    .header("Content-Type", "application/json")
-                                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(messagesSendRequest)))
-                                    .build();
-                            return HTTP_CLIENT.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                                    .thenApply(HttpResponse::body)
-                                    .thenApply(JsonParser::parseString)
-                                    .thenApply(jsonElement -> GSON.fromJson(jsonElement, Response.class));
-                        }))
-                .collect(Collectors.toList());
-        for (CompletableFuture<Response> responseCompletableFuture : responses) {
-            Response response = responseCompletableFuture.join();
-            if (!response.success) {
-                System.out.println(GSON.toJson(response.error));
-            }
-        }
-    }
-
-    private static boolean isTheStockMarketOpen;
-
     public static void main(String[] args) {
         Timer timer = new Timer();
 
@@ -155,6 +81,72 @@ public class Main {
                 }
             }
         }, usaStockMarketTodayClosingTime.getTime(), DAY);
+    }
+
+    private static List<Conversation> OpenConversations() {
+        URI conversationsOpen;
+        try {
+            conversationsOpen = new URI("https://api.kakaowork.com/v1/conversations.open");
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            return Collections.emptyList();
+        }
+        return users.parallelStream()
+                .map(user -> {
+                    ConversationsOpenRequest conversationsOpenRequest = new ConversationsOpenRequest();
+                    conversationsOpenRequest.user_id = user.id;
+                    HttpRequest httpRequest = HttpRequest.newBuilder(conversationsOpen)
+                            .header("Authorization", "Bearer " + APP_KEY)
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(conversationsOpenRequest)))
+                            .build();
+                    return HTTP_CLIENT.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                            .thenApply(HttpResponse::body)
+                            .thenApply(JsonParser::parseString)
+                            .thenApply(jsonElement -> GSON.fromJson(jsonElement, ConversationsOpenResponse.class));
+                })
+                .map(CompletableFuture::join)
+                .filter(conversationsOpenResponse -> {
+                    if (!conversationsOpenResponse.success) {
+                        System.out.println(GSON.toJson(conversationsOpenResponse.error));
+                    }
+                    return conversationsOpenResponse.success;
+                }).map(conversationsOpenResponse -> conversationsOpenResponse.conversation)
+                .collect(Collectors.toList());
+    }
+
+    private static void SendClosingPrices() {
+        URI messagesSend;
+        try {
+            messagesSend = new URI("https://api.kakaowork.com/v1/messages.send");
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        List<CompletableFuture<Response>> responses = conversations.parallelStream()
+                .map(conversation -> conversation.id)
+                .flatMap(conversationId -> blocks.parallelStream()
+                        .map(indexBlocks -> {
+                            MessagesSendRequest messagesSendRequest = new MessagesSendRequest(conversationId, "Index end prices");
+                            messagesSendRequest.blocks = indexBlocks;
+                            HttpRequest httpRequest = HttpRequest.newBuilder(messagesSend)
+                                    .header("Authorization", "Bearer " + APP_KEY)
+                                    .header("Content-Type", "application/json")
+                                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(messagesSendRequest)))
+                                    .build();
+                            return HTTP_CLIENT.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                                    .thenApply(HttpResponse::body)
+                                    .thenApply(JsonParser::parseString)
+                                    .thenApply(jsonElement -> GSON.fromJson(jsonElement, Response.class));
+                        }))
+                .collect(Collectors.toList());
+        for (CompletableFuture<Response> responseCompletableFuture : responses) {
+            Response response = responseCompletableFuture.join();
+            if (!response.success) {
+                System.out.println(GSON.toJson(response.error));
+            }
+        }
     }
 
     private static boolean GetIsTheStockMarketOpen() {
@@ -213,15 +205,6 @@ public class Main {
                 .collect(Collectors.toList());
     }
 
-    private static final String APP_KEY = System.getenv("APP_KEY");
-    private static final String FMP_API_KEY = System.getenv("FMP_API_KEY");
-    private static final String USER_ID = System.getenv("USER_ID");
-    private static final Gson GSON = new GsonBuilder()
-            .setPrettyPrinting()
-            .create();
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .build();
-
     private static List<User> GetUsers() {
         if (USER_ID != null) {
             User user = new User();
@@ -249,4 +232,18 @@ public class Main {
         }
         return usersListResponse.users;
     }
+
+    private static List<User> users;
+    private static List<Conversation> conversations;
+    private static List<List<Block>> blocks;
+    private static boolean isTheStockMarketOpen;
+    private static final int DAY = 24 * 60 * 60 * 1000;
+    private static final String APP_KEY = System.getenv("APP_KEY");
+    private static final String FMP_API_KEY = System.getenv("FMP_API_KEY");
+    private static final String USER_ID = System.getenv("USER_ID");
+    private static final Gson GSON = new GsonBuilder()
+            .setPrettyPrinting()
+            .create();
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .build();
 }
